@@ -313,6 +313,16 @@ input{font-family:inherit; color:inherit;}
   transition:transform .2s;
 }
 .set-card.selected .set-card-check::after{transform:rotate(45deg) translate(-1px,-1px) scale(1);}
+.set-card-remove{
+  position:absolute; top:12px; left:12px;
+  width:22px; height:22px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:16px; line-height:1; color:var(--grey);
+  background:var(--panel-raised);
+  border:1px solid var(--hairline);
+  transition:color .2s, border-color .2s;
+}
+.set-card-remove:active{color:var(--red); border-color:var(--red);}
 
 .ai-set-card{
   grid-column:1 / -1;
@@ -705,12 +715,12 @@ html:not([data-theme="light"]) .theme-icon-sun{opacity:0; transform:scale(0.5) r
     <div class="scroll-area">
       <div class="content">
         <div class="section-label"><span class="section-num">01</span> PLAYERS</div>
-        <div class="player-input-row">
-          <input type="text" id="playerNameInput" placeholder="Type a name and hit add" maxlength="20" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" name="imposter-player-name-field">
-          <button class="btn btn-icon" id="addPlayerBtn">
+        <form class="player-input-row" id="playerInputForm" autocomplete="off">
+          <input type="text" id="playerNameInput" placeholder="Type a name and hit add" maxlength="20" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" name="q">
+          <button type="submit" class="btn btn-icon" id="addPlayerBtn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
-        </div>
+        </form>
         <div id="playerListEmpty" class="empty-hint">NO PLAYERS YET — ADD AT LEAST 3</div>
         <div class="player-list" id="playerList"></div>
       </div>
@@ -956,8 +966,7 @@ const BUILTIN_ORDER = ["geography", "media", "sports", "games"];
 // ============================================================
 const state = {
   players: [],
-  selectedSetKey: null,    // 'geography' | 'media' | 'sports' | 'games' | 'ai'
-  customSet: null,         // { name, icon, words } when AI generated
+  selectedSetKeys: new Set(),  // keys into ALL_SETS, e.g. 'geography', 'ai_173823'
   imposterCount: 1,
   // runtime game state
   roundWord: null,
@@ -967,6 +976,7 @@ const state = {
 };
 
 const ALL_SETS = Object.assign({}, BUILTIN_SETS);
+let aiSetCounter = 0;
 
 // ============================================================
 // DOM SHORTCUTS
@@ -1097,12 +1107,9 @@ function addPlayer() {
   playerNameInput.focus();
 }
 
-$('addPlayerBtn').addEventListener('click', addPlayer);
-playerNameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    addPlayer();
-  }
+document.getElementById('playerInputForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  addPlayer();
 });
 playerListEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.chip-remove');
@@ -1128,10 +1135,13 @@ const toImpostersBtn = $('toImpostersBtn');
 
 function renderSetGrid() {
   setGrid.innerHTML = '';
+
+  // Builtin set cards — toggleable
   BUILTIN_ORDER.forEach(key => {
     const set = ALL_SETS[key];
     const card = document.createElement('button');
-    card.className = 'set-card' + (state.selectedSetKey === key ? ' selected' : '');
+    card.type = 'button';
+    card.className = 'set-card' + (state.selectedSetKeys.has(key) ? ' selected' : '');
     card.dataset.key = key;
     card.innerHTML = `
       <div class="set-card-check"></div>
@@ -1139,13 +1149,38 @@ function renderSetGrid() {
       <div class="set-card-name">${set.name}</div>
       <div class="set-card-meta">${set.words.length} CARDS</div>
     `;
-    card.addEventListener('click', () => selectSet(key));
+    card.addEventListener('click', () => toggleSet(key));
     setGrid.appendChild(card);
   });
 
-  // AI card
+  // Already-generated AI set cards — toggleable, same as builtins
+  getAiSetKeys().forEach(key => {
+    const set = ALL_SETS[key];
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'set-card' + (state.selectedSetKeys.has(key) ? ' selected' : '');
+    card.dataset.key = key;
+    card.innerHTML = `
+      <div class="set-card-check"></div>
+      <div class="set-card-icon mono">AI</div>
+      <div class="set-card-name">${escapeHtml(set.name)}</div>
+      <div class="set-card-meta">${set.words.length} CARDS</div>
+      <button type="button" class="set-card-remove" data-remove-key="${key}" aria-label="Remove set">×</button>
+    `;
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('[data-remove-key]')) return;
+      toggleSet(key);
+    });
+    card.querySelector('[data-remove-key]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeAiSet(key);
+    });
+    setGrid.appendChild(card);
+  });
+
+  // AI generator card — always present, lets you add another AI set
   const aiCard = document.createElement('div');
-  aiCard.className = 'ai-set-card' + (state.selectedSetKey === 'ai' ? ' selected' : '');
+  aiCard.className = 'ai-set-card';
   aiCard.id = 'aiSetCard';
   aiCard.innerHTML = `
     <div class="ai-row">
@@ -1153,42 +1188,46 @@ function renderSetGrid() {
       <span class="ai-title">Generate a set</span>
     </div>
     <div class="ai-sub">TYPE A THEME. GEMINI BUILDS 50 CARDS.</div>
-    <div class="ai-input-wrap">
-      <input type="text" id="aiPhraseInput" placeholder="e.g. 80s movies, dinosaurs, kitchen tools" maxlength="60" autocomplete="off" autocapitalize="sentences" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" name="imposter-ai-theme-field" ${ALL_SETS.ai ? 'value="' + escapeHtml(state.customSet ? state.customSet.themeInput || '' : '') + '"' : ''}>
-      <button class="ai-go-btn mono" id="aiGoBtn">→</button>
-    </div>
+    <form class="ai-input-wrap" id="aiPhraseForm" autocomplete="off">
+      <input type="text" id="aiPhraseInput" placeholder="e.g. 80s movies, dinosaurs, kitchen tools" maxlength="60" autocomplete="off" autocapitalize="sentences" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" name="q">
+      <button type="submit" class="ai-go-btn mono" id="aiGoBtn">→</button>
+    </form>
     <div id="aiStatusZone"></div>
   `;
   setGrid.appendChild(aiCard);
 
-  $('aiGoBtn').addEventListener('click', generateAiSet);
-  $('aiPhraseInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      generateAiSet();
-      $('aiPhraseInput').blur();
-    }
+  document.getElementById('aiPhraseForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    generateAiSet();
   });
-
-  if (ALL_SETS.ai && state.selectedSetKey === 'ai') {
-    showAiStatus(`READY — "${ALL_SETS.ai.name}" — ${ALL_SETS.ai.words.length} CARDS`, false, true);
-  }
 
   updateImpostersBtnState();
 }
 
-function selectSet(key) {
-  state.selectedSetKey = key;
-  document.querySelectorAll('.set-card').forEach(c => {
-    c.classList.toggle('selected', c.dataset.key === key);
+function getAiSetKeys() {
+  return Object.keys(ALL_SETS).filter(k => k.startsWith('ai_'));
+}
+
+function toggleSet(key) {
+  if (state.selectedSetKeys.has(key)) {
+    state.selectedSetKeys.delete(key);
+  } else {
+    state.selectedSetKeys.add(key);
+  }
+  document.querySelectorAll('.set-card[data-key]').forEach(c => {
+    c.classList.toggle('selected', state.selectedSetKeys.has(c.dataset.key));
   });
-  $('aiSetCard').classList.toggle('selected', key === 'ai');
   updateImpostersBtnState();
+}
+
+function removeAiSet(key) {
+  delete ALL_SETS[key];
+  state.selectedSetKeys.delete(key);
+  renderSetGrid();
 }
 
 function updateImpostersBtnState() {
-  const ok = state.selectedSetKey === 'ai' ? !!ALL_SETS.ai : !!state.selectedSetKey;
-  toImpostersBtn.disabled = !ok;
+  toImpostersBtn.disabled = state.selectedSetKeys.size === 0;
 }
 
 function showAiStatus(msg, isError, isReady) {
@@ -1210,6 +1249,7 @@ async function generateAiSet() {
     return;
   }
   $('aiGoBtn').disabled = true;
+  input.blur();
   showAiStatus('GENERATING 50 CARDS...', false, false);
 
   try {
@@ -1217,22 +1257,22 @@ async function generateAiSet() {
     if (!words || words.length < 10) {
       throw new Error('Not enough cards returned');
     }
-    ALL_SETS.ai = {
+    aiSetCounter += 1;
+    const key = 'ai_' + Date.now() + '_' + aiSetCounter;
+    ALL_SETS[key] = {
       name: titleCase(phrase),
       icon: 'AI',
       themeInput: phrase,
       words: words,
     };
-    state.selectedSetKey = 'ai';
-    $('aiSetCard').classList.add('selected');
-    document.querySelectorAll('.set-card').forEach(c => c.classList.remove('selected'));
-    showAiStatus(`READY — ${words.length} CARDS GENERATED`, false, true);
-    updateImpostersBtnState();
+    state.selectedSetKeys.add(key);
+    input.value = '';
+    renderSetGrid();
+    toast(`"${titleCase(phrase)}" added — ${words.length} cards`);
   } catch (err) {
     console.error(err);
     showAiStatus('GENERATION FAILED — TRY AGAIN', true, false);
     toast(err.message || 'Could not generate set. Try a different phrase.', true);
-  } finally {
     $('aiGoBtn').disabled = false;
   }
 }
@@ -1295,10 +1335,23 @@ function setupImpostersScreen() {
   if (state.imposterCount < 1) state.imposterCount = 1;
   updateImposterUI();
 
-  const currentSet = state.selectedSetKey === 'ai' ? ALL_SETS.ai : ALL_SETS[state.selectedSetKey];
-  $('summarySet').textContent = currentSet ? currentSet.name : '—';
+  const names = getSelectedSetNames();
+  $('summarySet').textContent = names.length ? names.join(' + ') : '—';
   $('summaryPlayers').textContent = state.players.length;
   $('impOfTotal').textContent = state.players.length;
+}
+
+function getSelectedSetNames() {
+  return [...state.selectedSetKeys].map(k => ALL_SETS[k] ? ALL_SETS[k].name : null).filter(Boolean);
+}
+
+function getCombinedWordPool() {
+  const pool = [];
+  state.selectedSetKeys.forEach(k => {
+    const set = ALL_SETS[k];
+    if (set) pool.push(...set.words);
+  });
+  return pool;
 }
 
 function updateImposterUI() {
@@ -1357,12 +1410,12 @@ function shuffle(arr) {
 }
 
 function startGame() {
-  const currentSet = state.selectedSetKey === 'ai' ? ALL_SETS.ai : ALL_SETS[state.selectedSetKey];
-  if (!currentSet) {
-    toast('Select a set first', true);
+  const pool = getCombinedWordPool();
+  if (!pool.length) {
+    toast('Select at least one set first', true);
     return;
   }
-  state.roundWord = currentSet.words[Math.floor(Math.random() * currentSet.words.length)];
+  state.roundWord = pool[Math.floor(Math.random() * pool.length)];
 
   // assign imposters
   const indices = shuffle(state.players.map((_, i) => i));
@@ -1526,7 +1579,7 @@ $('newRoundBtn').addEventListener('click', () => {
 });
 
 $('newGameBtn').addEventListener('click', () => {
-  state.selectedSetKey = null;
+  state.selectedSetKeys.clear();
   showScreen('players');
 });
 
