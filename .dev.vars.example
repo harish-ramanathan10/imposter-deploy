@@ -1,6 +1,0 @@
-# Copy this file to .dev.vars for local testing with `wrangler pages dev`.
-# .dev.vars is gitignored and never committed. The real key only ever lives
-# here locally, or in the Cloudflare dashboard's encrypted environment
-# variables for production. It never goes in index.html or generate-set.js.
-
-GEMINI_API_KEY=your-key-here
