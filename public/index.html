@@ -441,10 +441,11 @@ input{font-family:inherit; color:inherit;}
 }
 .game-progress .seg .fill{
   height:100%; width:0%; background:var(--red);
-  transition:width .3s;
+  transition:width .45s cubic-bezier(.4,0,.2,1);
 }
 .game-progress .seg.done .fill{width:100%;}
-.game-progress .seg.current .fill{width:50%;}
+.game-progress .seg.current .fill{width:35%;}
+.game-progress .seg.current.seen .fill{width:100%;}
 
 .card-stage{
   flex:1; display:flex; align-items:center; justify-content:center;
@@ -464,9 +465,11 @@ input{font-family:inherit; color:inherit;}
   border:1px solid var(--hairline-strong);
   display:flex; flex-direction:column;
   transform-style:preserve-3d;
-  transition:transform .15s;
+  -webkit-transform-style:preserve-3d;
+  transition:transform .22s cubic-bezier(.4,0,.2,1);
 }
 .reveal-card:active .reveal-card-inner{transform:scale(0.98);}
+.reveal-card.no-interact{pointer-events:none;}
 
 .card-perforation{
   position:absolute; top:0; left:0; right:0; height:1px;
@@ -479,6 +482,8 @@ input{font-family:inherit; color:inherit;}
   display:flex; flex-direction:column; align-items:center; justify-content:center;
   border-radius:28px;
   backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+  transform:translateZ(0);
   padding:30px;
 }
 .card-face-front{
@@ -1502,19 +1507,29 @@ revealCard.addEventListener('click', () => {
   cardFlipped = true;
   animateDotDissolve();
   revealCard.classList.add('flipped');
+  const segs = $('gameProgress').children;
+  if (segs[state.cardIndex]) segs[state.cardIndex].classList.add('seen');
   setTimeout(() => {
     nextCardBtn.classList.add('shown');
   }, 420);
 });
 
 nextCardBtn.addEventListener('click', () => {
-  cardFlipped = false;
-  state.cardIndex++;
-  if (state.cardIndex >= state.players.length) {
+  if (state.cardIndex + 1 >= state.players.length) {
+    cardFlipped = false;
+    state.cardIndex++;
     startQuestionPhase();
-  } else {
-    renderCard();
+    return;
   }
+  nextCardBtn.classList.remove('shown');
+  revealCard.classList.add('no-interact');
+  revealCard.classList.remove('flipped');
+  setTimeout(() => {
+    cardFlipped = false;
+    state.cardIndex++;
+    renderCard();
+    revealCard.classList.remove('no-interact');
+  }, 240);
 });
 
 $('quitGameBtn').addEventListener('click', () => {
