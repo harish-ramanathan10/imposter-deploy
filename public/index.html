@@ -45,7 +45,7 @@ html[data-theme="light"]{
 }
 
 *{box-sizing:border-box; margin:0; padding:0;}
-*{transition:background-color .35s cubic-bezier(.2,.8,.2,1), border-color .35s cubic-bezier(.2,.8,.2,1), color .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s cubic-bezier(.2,.8,.2,1);}
+html.theme-fading, html.theme-fading *{transition:background-color .35s cubic-bezier(.2,.8,.2,1), border-color .35s cubic-bezier(.2,.8,.2,1), color .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s cubic-bezier(.2,.8,.2,1) !important;}
 html,body{
   background:var(--black);
   color:var(--white);
@@ -76,7 +76,7 @@ input{font-family:inherit; color:inherit;}
 .mono{font-family:var(--mono);}
 .dim{color:var(--grey);}
 
-/* ===== Screen scaffolding ====== */
+/* ===== Screen scaffolding ===== */
 .screen{
   position:absolute; inset:0;
   display:flex; flex-direction:column;
@@ -200,7 +200,7 @@ input{font-family:inherit; color:inherit;}
   border:1px solid var(--hairline);
   border-radius:12px;
   padding:15px 16px;
-  font-size:15px;
+  font-size:16px;
   font-weight:500;
   transition:border-color .2s, background .2s;
 }
@@ -341,7 +341,7 @@ input{font-family:inherit; color:inherit;}
   border:1px solid var(--hairline);
   border-radius:10px;
   padding:13px 14px;
-  font-size:14px;
+  font-size:16px;
 }
 .ai-input-wrap input:focus{outline:none; border-color:var(--red);}
 .ai-go-btn{
@@ -706,7 +706,7 @@ html:not([data-theme="light"]) .theme-icon-sun{opacity:0; transform:scale(0.5) r
       <div class="content">
         <div class="section-label"><span class="section-num">01</span> PLAYERS</div>
         <div class="player-input-row">
-          <input type="text" id="playerNameInput" placeholder="Type a name and hit add" maxlength="20">
+          <input type="text" id="playerNameInput" placeholder="Type a name and hit add" maxlength="20" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" name="imposter-player-name-field">
           <button class="btn btn-icon" id="addPlayerBtn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
@@ -1016,8 +1016,12 @@ document.querySelectorAll('[data-header-controls]').forEach(slot => {
 function toggleTheme() {
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
   const next = isLight ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', next);
+  const root = document.documentElement;
+  root.classList.add('theme-fading');
+  root.setAttribute('data-theme', next);
   try { localStorage.setItem('imposter-theme', next); } catch (e) {}
+  window.clearTimeout(toggleTheme._t);
+  toggleTheme._t = window.setTimeout(() => root.classList.remove('theme-fading'), 400);
 }
 
 function toggleFullscreen() {
@@ -1095,7 +1099,10 @@ function addPlayer() {
 
 $('addPlayerBtn').addEventListener('click', addPlayer);
 playerNameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') addPlayer();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addPlayer();
+  }
 });
 playerListEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.chip-remove');
@@ -1147,7 +1154,7 @@ function renderSetGrid() {
     </div>
     <div class="ai-sub">TYPE A THEME. GEMINI BUILDS 50 CARDS.</div>
     <div class="ai-input-wrap">
-      <input type="text" id="aiPhraseInput" placeholder="e.g. 80s movies, dinosaurs, kitchen tools" maxlength="60" ${ALL_SETS.ai ? 'value="' + escapeHtml(state.customSet ? state.customSet.themeInput || '' : '') + '"' : ''}>
+      <input type="text" id="aiPhraseInput" placeholder="e.g. 80s movies, dinosaurs, kitchen tools" maxlength="60" autocomplete="off" autocapitalize="sentences" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" name="imposter-ai-theme-field" ${ALL_SETS.ai ? 'value="' + escapeHtml(state.customSet ? state.customSet.themeInput || '' : '') + '"' : ''}>
       <button class="ai-go-btn mono" id="aiGoBtn">→</button>
     </div>
     <div id="aiStatusZone"></div>
@@ -1156,7 +1163,11 @@ function renderSetGrid() {
 
   $('aiGoBtn').addEventListener('click', generateAiSet);
   $('aiPhraseInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') generateAiSet();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      generateAiSet();
+      $('aiPhraseInput').blur();
+    }
   });
 
   if (ALL_SETS.ai && state.selectedSetKey === 'ai') {
