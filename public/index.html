@@ -314,13 +314,14 @@ input{font-family:inherit; color:inherit;}
 }
 .set-card.selected .set-card-check::after{transform:rotate(45deg) translate(-1px,-1px) scale(1);}
 .set-card-remove{
-  position:absolute; top:12px; left:12px;
+  position:absolute; top:12px; right:44px;
   width:22px; height:22px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
   font-size:16px; line-height:1; color:var(--grey);
   background:var(--panel-raised);
   border:1px solid var(--hairline);
   transition:color .2s, border-color .2s;
+  z-index:1;
 }
 .set-card-remove:active{color:var(--red); border-color:var(--red);}
 
@@ -503,6 +504,7 @@ input{font-family:inherit; color:inherit;}
   font-family:var(--mono); font-size:11px; color:var(--grey-dim);
   letter-spacing:0.12em;
   display:flex; align-items:center; gap:8px;
+  transition:opacity .2s;
 }
 .tap-pulse{
   width:6px; height:6px; border-radius:50%; background:var(--red);
@@ -511,6 +513,28 @@ input{font-family:inherit; color:inherit;}
 @keyframes tapPulse{
   0%,100%{transform:scale(1); opacity:0.5;}
   50%{transform:scale(1.6); opacity:1;}
+}
+
+.hold-ring{
+  position:absolute; top:50%; left:50%;
+  transform:translate(-50%,-50%) rotate(-90deg);
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .15s;
+}
+.reveal-card.holding .hold-ring{opacity:1;}
+.reveal-card.holding .card-tap-hint{opacity:0;}
+.hold-ring-track{
+  fill:none; stroke:var(--hairline-strong); stroke-width:4;
+}
+.hold-ring-fill{
+  fill:none; stroke:var(--red); stroke-width:4; stroke-linecap:round;
+  stroke-dasharray:169.6;
+  stroke-dashoffset:169.6;
+}
+.reveal-card.holding .hold-ring-fill{
+  stroke-dashoffset:0;
+  transition:stroke-dashoffset var(--hold-duration,650ms) linear;
 }
 
 .card-dot-grid{
@@ -813,10 +837,14 @@ html:not([data-theme="light"]) .theme-icon-sun{opacity:0; transform:scale(0.5) r
         <div class="reveal-card" id="revealCard">
           <div class="reveal-card-inner" id="revealCardInner">
             <div class="card-face card-face-front">
-              <div class="card-tab mono">TAP TO REVEAL</div>
+              <div class="card-tab mono">HOLD TO REVEAL</div>
               <div class="card-name" id="cardPlayerName">Name</div>
               <div class="card-dot-grid" id="cardDotGrid"></div>
-              <div class="card-tap-hint"><span class="tap-pulse"></span>HOLD SCREEN PRIVATE</div>
+              <svg class="hold-ring" id="holdRing" viewBox="0 0 64 64" width="64" height="64">
+                <circle class="hold-ring-track" cx="32" cy="32" r="27"></circle>
+                <circle class="hold-ring-fill" id="holdRingFill" cx="32" cy="32" r="27"></circle>
+              </svg>
+              <div class="card-tap-hint" id="cardTapHint"><span class="tap-pulse"></span>PRESS AND HOLD — KEEP SCREEN PRIVATE</div>
             </div>
             <div class="card-face card-face-back" id="cardBack">
               <div class="role-icon" id="roleIcon"></div>
@@ -1455,6 +1483,7 @@ function updateProgressBar() {
 
 function renderCard() {
   updateProgressBar();
+  cancelHold();
   revealCard.classList.remove('flipped');
   nextCardBtn.classList.remove('shown');
 
@@ -1501,10 +1530,36 @@ function animateDotDissolve() {
   });
 }
 
+const HOLD_DURATION_MS = 650;
 let cardFlipped = false;
-revealCard.addEventListener('click', () => {
+let holdTimer = null;
+let holdActive = false;
+
+function startHold(e) {
+  if (cardFlipped || holdActive) return;
+  holdActive = true;
+  revealCard.classList.add('holding');
+  if (revealCard.setPointerCapture && e.pointerId != null) {
+    try { revealCard.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  holdTimer = setTimeout(() => {
+    completeHold();
+  }, HOLD_DURATION_MS);
+}
+
+function cancelHold() {
+  if (!holdActive) return;
+  holdActive = false;
+  revealCard.classList.remove('holding');
+  clearTimeout(holdTimer);
+  holdTimer = null;
+}
+
+function completeHold() {
   if (cardFlipped) return;
+  holdActive = false;
   cardFlipped = true;
+  revealCard.classList.remove('holding');
   animateDotDissolve();
   revealCard.classList.add('flipped');
   const segs = $('gameProgress').children;
@@ -1512,7 +1567,13 @@ revealCard.addEventListener('click', () => {
   setTimeout(() => {
     nextCardBtn.classList.add('shown');
   }, 420);
-});
+}
+
+revealCard.addEventListener('pointerdown', startHold);
+revealCard.addEventListener('pointerup', cancelHold);
+revealCard.addEventListener('pointercancel', cancelHold);
+revealCard.addEventListener('pointerleave', cancelHold);
+revealCard.style.setProperty('--hold-duration', HOLD_DURATION_MS + 'ms');
 
 nextCardBtn.addEventListener('click', () => {
   if (state.cardIndex + 1 >= state.players.length) {
